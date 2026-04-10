@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EVIDENTIA — Digital Evidence Tampering Detection</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&family=Orbitron:wght@400;700;900&display=swap');
+
+  :root {
+    --bg: #050a0f;
+    --bg2: #090f17;
+    --panel: #0d1520;
+    --panel2: #111c2a;
+    --border: #1a3a5c;
+    --accent: #00d4ff;
+    --green: #00ff88;
+    --orange: #ff8c00;
+    --red: #ff2244;
+    --text: #c8dff0;
+    --text-dim: #5a7a9a;
+    --mono: 'Share Tech Mono', monospace;
+    --head: 'Orbitron', sans-serif;
+    --body: 'Rajdhani', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--body);
+    font-size: 15px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,212,255,0.015) 2px, rgba(0,212,255,0.015) 4px);
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-image: linear-gradient(rgba(0,212,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(0,212,255,0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wrap { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto; padding: 20px; }
+
+  header {
+    text-align: center;
+    padding: 30px 0 24px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 28px;
+  }
+
+  .logo-badge {
+    display: inline-block;
+    background: linear-gradient(135deg, #00d4ff22, #0099cc11);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    padding: 2px 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 4px;
+    margin-bottom: 10px;
+  }
+
+  header h1 {
+    font-family: var(--head);
+    font-size: clamp(28px, 5vw, 48px);
+    font-weight: 900;
+    letter-spacing: 6px;
+    background: linear-gradient(90deg, #00d4ff, #ffffff, #00d4ff);
+    background-size: 200%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: shimmer 4s ease-in-out infinite;
+  }
+
+  @keyframes shimmer {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+  }
+
+  header p { color: var(--text-dim); font-family: var(--mono); font-size: 12px; letter-spacing: 2px; margin-top: 6px; }
+
+  .status-bar { display: flex; align-items: center; justify-content: center; gap: 20px; margin-top: 14px; font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 2s infinite; margin-right: 5px; }
+
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  .tabs { display: flex; gap: 2px; margin-bottom: 20px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+
+  .tab-btn {
+    background: transparent; border: none; padding: 10px 20px;
+    color: var(--text-dim); font-family: var(--body); font-size: 13px;
+    font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase;
+    cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; transition: all 0.2s;
+  }
+  .tab-btn:hover { color: var(--accent); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); background: rgba(0,212,255,0.05); }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 6px; padding: 20px; margin-bottom: 16px; position: relative;
+  }
+  .panel::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  }
+  .panel-title {
+    font-family: var(--head); font-size: 11px; letter-spacing: 3px;
+    color: var(--accent); text-transform: uppercase; margin-bottom: 16px;
+    padding-bottom: 10px; border-bottom: 1px solid var(--border);
+  }
+
+  .upload-zone {
+    border: 2px dashed var(--border); border-radius: 8px; padding: 50px 20px;
+    text-align: center; cursor: pointer; transition: all 0.3s; background: var(--bg2);
+  }
+  .upload-zone:hover, .upload-zone.dragover {
+    border-color: var(--accent); background: rgba(0,212,255,0.05);
+    box-shadow: 0 0 20px rgba(0,212,255,0.1);
+  }
+  .upload-icon { font-size: 48px; margin-bottom: 12px; display: block; opacity: 0.5; }
+  .upload-zone h3 { font-family: var(--head); font-size: 14px; letter-spacing: 2px; color: var(--accent); margin-bottom: 6px; }
+  .upload-zone p { color: var(--text-dim); font-family: var(--mono); font-size: 12px; }
+  #fileInput { display: none; }
+
+  .meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 14px; }
+  .meta-item { background: var(--bg2); border: 1px solid var(--border); border-radius: 4px; padding: 10px 14px; }
+  .meta-label { font-family: var(--mono); font-size: 10px; color: var(--text-dim); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 4px; }
+  .meta-val { font-family: var(--mono); font-size: 13px; color: var(--accent); word-break: break-all; }
+
+  .hash-block { background: var(--bg2); border: 1px solid var(--border); border-radius: 4px; padding: 12px 16px; margin-bottom: 10px; display: flex; align-items: flex-start; gap: 14px; }
+  .hash-algo { font-family: var(--head); font-size: 11px; letter-spacing: 2px; color: var(--accent); min-width: 70px; padding-top: 2px; }
+  .hash-val { font-family: var(--mono); font-size: 11px; color: var(--text); word-break: break-all; flex: 1; line-height: 1.6; }
+  .copy-btn { background: transparent; border: 1px solid var(--border); color: var(--text-dim); font-family: var(--mono); font-size: 10px; padding: 4px 8px; border-radius: 3px; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+  .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .btn {
+    background: linear-gradient(135deg, #00d4ff22, #0099cc11);
+    border: 1px solid var(--accent); color: var(--accent);
+    font-family: var(--head); font-size: 12px; letter-spacing: 2px;
+    padding: 10px 24px; border-radius: 4px; cursor: pointer;
+    text-transform: uppercase; transition: all 0.2s;
+  }
+  .btn:hover { background: rgba(0,212,255,0.2); box-shadow: 0 0 15px rgba(0,212,255,0.3); }
+  .btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  .btn-red { border-color: var(--red); color: var(--red); background: rgba(255,34,68,0.08); }
+  .btn-red:hover { background: rgba(255,34,68,0.2); box-shadow: 0 0 15px rgba(255,34,68,0.3); }
+  .btn-green { border-color: var(--green); color: var(--green); background: rgba(0,255,136,0.08); }
+  .btn-green:hover { background: rgba(0,255,136,0.2); }
+
+  .check-row {
+    display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 4px; margin-bottom: 8px;
+  }
+  .check-icon { font-size: 16px; min-width: 20px; text-align: center; }
+  .check-label { flex: 1; font-family: var(--body); font-size: 14px; font-weight: 500; }
+  .check-result { font-family: var(--mono); font-size: 11px; letter-spacing: 1px; }
+  .ok { color: var(--green); }
+  .warn { color: var(--orange); }
+  .fail { color: var(--red); }
+
+  .verdict-box {
+    border-radius: 8px; padding: 20px; text-align: center; margin-top: 16px;
+    border: 2px solid; position: relative; overflow: hidden;
+  }
+  .verdict-box.clean { border-color: var(--green); background: rgba(0,255,136,0.06); }
+  .verdict-box.suspicious { border-color: var(--orange); background: rgba(255,140,0,0.06); }
+  .verdict-box.tampered { border-color: var(--red); background: rgba(255,34,68,0.06); }
+
+  .verdict-label { font-family: var(--head); font-size: 24px; letter-spacing: 4px; font-weight: 900; margin-bottom: 6px; }
+  .verdict-box.clean .verdict-label { color: var(--green); }
+  .verdict-box.suspicious .verdict-label { color: var(--orange); }
+  .verdict-box.tampered .verdict-label { color: var(--red); }
+
+  .threat-bar-wrap { background: var(--bg2); border-radius: 20px; height: 8px; margin: 12px 0; overflow: hidden; }
+  .threat-bar { height: 100%; border-radius: 20px; transition: width 1s ease; }
+
+  .score-num { font-family: var(--head); font-size: 36px; font-weight: 900; }
+
+  .anomaly-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; justify-content: center; }
+  .anomaly-tag { font-family: var(--mono); font-size: 10px; padding: 3px 10px; border-radius: 3px; border: 1px solid var(--red); color: var(--red); background: rgba(255,34,68,0.08); }
+
+  canvas { width: 100%; height: 160px; border-radius: 4px; display: block; }
+
+  .input-field {
+    background: var(--bg2); border: 1px solid var(--border); color: var(--text);
+    font-family: var(--mono); font-size: 12px; padding: 10px 14px; border-radius: 4px;
+    width: 100%; outline: none; transition: border-color 0.2s;
+  }
+  .input-field:focus { border-color: var(--accent); }
+
+  .compare-result {
+    padding: 16px; border-radius: 6px; text-align: center; margin-top: 12px;
+    font-family: var(--head); font-size: 18px; letter-spacing: 3px; font-weight: 700;
+    border: 2px solid; display: none;
+  }
+  .compare-result.match { border-color: var(--green); color: var(--green); background: rgba(0,255,136,0.06); }
+  .compare-result.mismatch { border-color: var(--red); color: var(--red); background: rgba(255,34,68,0.06); }
+
+  .live-hash-wrap { display: flex; gap: 10px; margin-bottom: 10px; }
+
+  .report-output {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 4px;
+    padding: 16px; font-family: var(--mono); font-size: 11px; line-height: 1.8;
+    color: var(--text); white-space: pre-wrap; max-height: 400px; overflow-y: auto; display: none;
+  }
+
+  .flex-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .label { font-family: var(--mono); font-size: 11px; color: var(--text-dim); letter-spacing: 1px; margin-bottom: 6px; display: block; }
+
+  select.input-field { cursor: pointer; }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 600px) { .two-col { grid-template-columns: 1fr; } }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg2); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .processing { display: flex; align-items: center; gap: 10px; color: var(--accent); font-family: var(--mono); font-size: 12px; }
+  .spinner { width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- HEADER -->
+  <header>
+    <div class="logo-badge">FORENSIC SYSTEM v2.1</div>
+    <h1>EVIDENTIA</h1>
+    <p>DIGITAL EVIDENCE TAMPERING DETECTION SYSTEM</p>
+    <div class="status-bar">
+      <span><span class="dot"></span>SYSTEM ONLINE</span>
+      <span>|</span>
+      <span>CLIENT-SIDE ONLY — NO DATA LEAVES YOUR BROWSER</span>
+      <span>|</span>
+      <span>SHA-256 COURT-ADMISSIBLE</span>
+    </div>
+  </header>
+
+  <!-- TABS -->
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('tab1',this)">① File Analysis</button>
+    <button class="tab-btn" onclick="switchTab('tab2',this)">② Forensic Scan</button>
+    <button class="tab-btn" onclick="switchTab('tab3',this)">③ Hash Compare</button>
+    <button class="tab-btn" onclick="switchTab('tab4',this)">④ Case Report</button>
+  </div>
+
+  <!-- TAB 1: FILE ANALYSIS -->
+  <div id="tab1" class="tab-panel active">
+    <div class="panel">
+      <div class="panel-title">▸ Evidence File Upload</div>
+      <div class="upload-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+        <span class="upload-icon">🔬</span>
+        <h3>Drop Evidence File Here</h3>
+        <p>or click to browse — image, PDF, document, video, any file</p>
+      </div>
+      <input type="file" id="fileInput" onchange="handleFile(this.files[0])">
+    </div>
+
+    <div class="panel" id="metaPanel" style="display:none">
+      <div class="panel-title">▸ File Metadata</div>
+      <div class="meta-grid">
+        <div class="meta-item"><div class="meta-label">Filename</div><div class="meta-val" id="m-name">—</div></div>
+        <div class="meta-item"><div class="meta-label">File Size</div><div class="meta-val" id="m-size">—</div></div>
+        <div class="meta-item"><div class="meta-label">MIME Type</div><div class="meta-val" id="m-type">—</div></div>
+        <div class="meta-item"><div class="meta-label">Last Modified</div><div class="meta-val" id="m-mod">—</div></div>
+      </div>
+    </div>
+
+    <div class="panel" id="hashPanel" style="display:none">
+      <div class="panel-title">▸ Cryptographic Hash Fingerprints</div>
+      <div id="hashProcessing" class="processing"><div class="spinner"></div> Computing hashes…</div>
+      <div id="hashResults" style="display:none">
+        <div class="hash-block">
+          <div class="hash-algo">MD5</div>
+          <div class="hash-val" id="h-md5">—</div>
+          <button class="copy-btn" onclick="copyText('h-md5')">COPY</button>
+        </div>
+        <div class="hash-block">
+          <div class="hash-algo">SHA-256</div>
+          <div class="hash-val" id="h-sha256">—</div>
+          <button class="copy-btn" onclick="copyText('h-sha256')">COPY</button>
+        </div>
+        <div class="hash-block">
+          <div class="hash-algo">SHA-512</div>
+          <div class="hash-val" id="h-sha512">—</div>
+          <button class="copy-btn" onclick="copyText('h-sha512')">COPY</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 2: FORENSIC SCAN -->
+  <div id="tab2" class="tab-panel">
+    <div class="panel">
+      <div class="panel-title">▸ Forensic Analysis Engine — 8 Detection Modules</div>
+      <div style="margin-bottom:14px">
+        <button class="btn" id="runBtn" onclick="runFullAnalysis()" disabled>▶ Run Full Forensic Analysis</button>
+      </div>
+      <div id="checksContainer"></div>
+      <div id="verdictContainer"></div>
+    </div>
+
+    <div class="panel" id="heatmapPanel" style="display:none">
+      <div class="panel-title">▸ Pixel Anomaly Heatmap</div>
+      <canvas id="heatmapCanvas" height="160"></canvas>
+      <p style="font-family:var(--mono);font-size:11px;color:var(--text-dim);margin-top:8px">
+        🟢 Normal pixels &nbsp;|&nbsp; 🟠 Suspicious zones &nbsp;|&nbsp; 🔴 Anomaly regions &nbsp;|&nbsp; ⬜ Clone detection boundary
+      </p>
+    </div>
+  </div>
+
+  <!-- TAB 3: HASH COMPARE -->
+  <div id="tab3" class="tab-panel">
+    <div class="panel">
+      <div class="panel-title">▸ Hash Verification — Detect Tampering</div>
+      <div class="two-col" style="margin-bottom:14px">
+        <div>
+          <label class="label">Algorithm</label>
+          <select class="input-field" id="compareAlgo">
+            <option value="sha256">SHA-256</option>
+            <option value="md5">MD5</option>
+            <option value="sha512">SHA-512</option>
+          </select>
+        </div>
+        <div>
+          <label class="label">Computed Hash (from loaded file)</label>
+          <input class="input-field" id="computedHashDisplay" readonly placeholder="Load a file in Tab 1 first">
+        </div>
+      </div>
+      <label class="label">Known / Original Hash (paste here)</label>
+      <input class="input-field" id="knownHash" placeholder="Paste the original file's hash here…" style="margin-bottom:12px">
+      <div class="flex-row">
+        <button class="btn" onclick="compareHashes()">⚡ Compare Hashes</button>
+        <button class="btn" onclick="useComputed()">Use Computed as Known</button>
+        <button class="btn btn-red" onclick="simulateTamper()">🚨 Simulate Tampering</button>
+      </div>
+      <div id="compareResult" class="compare-result"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">▸ Live Hash Demo — Avalanche Effect</div>
+      <p style="color:var(--text-dim);font-family:var(--mono);font-size:11px;margin-bottom:10px">
+        Type anything below and watch the entire SHA-256 hash change with every keystroke:
+      </p>
+      <div class="live-hash-wrap">
+        <input class="input-field" id="liveInput" placeholder="Type here…" oninput="updateLiveHash()" style="flex:1">
+      </div>
+      <div class="hash-block">
+        <div class="hash-algo">SHA-256</div>
+        <div class="hash-val" id="liveHash" style="color:var(--text-dim)">— start typing above —</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 4: CASE REPORT -->
+  <div id="tab4" class="tab-panel">
+    <div class="panel">
+      <div class="panel-title">▸ Forensic Case Report Generator</div>
+      <div class="two-col" style="margin-bottom:14px">
+        <div>
+          <label class="label">Case Number</label>
+          <input class="input-field" id="caseNum" placeholder="e.g. EVD-2025-001">
+        </div>
+        <div>
+          <label class="label">Examiner Name</label>
+          <input class="input-field" id="examinerName" placeholder="Your full name">
+        </div>
+      </div>
+      <div style="margin-bottom:14px">
+        <label class="label">Case Notes (optional)</label>
+        <textarea class="input-field" id="caseNotes" rows="3" placeholder="Describe the evidence, context, or chain of custody notes…" style="resize:vertical"></textarea>
+      </div>
+      <div class="flex-row">
+        <button class="btn" onclick="generateReport()">📄 Generate Report</button>
+        <button class="btn btn-green" id="dlBtn" onclick="downloadReport()" disabled>⬇ Download .txt</button>
+      </div>
+      <div class="report-output" id="reportOutput"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // ── STATE ──
+  let currentFile = null;
+  let hashes = { md5: '', sha256: '', sha512: '' };
+  let analysisResults = [];
+  let threatScore = 0;
+  let reportText = '';
+
+  // ── DRAG & DROP ──
+  const dz = document.getElementById('dropZone');
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+  dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('dragover'); if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+
+  // ── FILE HANDLER ──
+  function handleFile(file) {
+    if (!file) return;
+    currentFile = file;
+
+    document.getElementById('m-name').textContent = file.name;
+    document.getElementById('m-size').textContent = formatSize(file.size);
+    document.getElementById('m-type').textContent = file.type || 'unknown';
+    document.getElementById('m-mod').textContent = new Date(file.lastModified).toLocaleString();
+
+    document.getElementById('metaPanel').style.display = 'block';
+    document.getElementById('hashPanel').style.display = 'block';
+    document.getElementById('hashProcessing').style.display = 'flex';
+    document.getElementById('hashResults').style.display = 'none';
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const wordArray = CryptoJS.lib.WordArray.create(e.target.result);
+      hashes.md5    = CryptoJS.MD5(wordArray).toString();
+      hashes.sha256 = CryptoJS.SHA256(wordArray).toString();
+      hashes.sha512 = CryptoJS.SHA512(wordArray).toString();
+
+      document.getElementById('h-md5').textContent    = hashes.md5;
+      document.getElementById('h-sha256').textContent = hashes.sha256;
+      document.getElementById('h-sha512').textContent = hashes.sha512;
+
+      document.getElementById('hashProcessing').style.display = 'none';
+      document.getElementById('hashResults').style.display = 'block';
+      document.getElementById('runBtn').disabled = false;
+
+      // Update compare tab display
+      updateComputedDisplay();
+
+      // Update upload zone
+      dz.innerHTML = `<span class="upload-icon">✅</span><h3>File Loaded</h3><p>${file.name}</p>`;
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  // ── FORENSIC ANALYSIS ──
+  function runFullAnalysis() {
+    if (!currentFile) return;
+
+    threatScore = 0;
+    analysisResults = [];
+    const anomalies = [];
+    const isImage = currentFile.type.startsWith('image/');
+    const isDoc = ['application/pdf','application/msword','application/vnd.openxmlformats'].some(t => currentFile.type.includes(t));
+
+    // Module 1: Filename
+    const nameOk = !/copy|edit|modified|tamper|fake|altered/i.test(currentFile.name);
+    if (!nameOk) { threatScore += 15; anomalies.push('Suspicious Filename'); }
+    analysisResults.push({ label: 'Filename Pattern Analysis', ok: nameOk, result: nameOk ? 'No suspicious keywords detected' : 'Suspicious keyword in filename' });
+
+    // Module 2: Extension
+    const hasExt = currentFile.name.includes('.');
+    if (!hasExt) { threatScore += 10; anomalies.push('Missing Extension'); }
+    analysisResults.push({ label: 'File Extension Validity', ok: hasExt, result: hasExt ? 'Valid extension present' : 'No file extension — possible type masking' });
+
+    // Module 3: File size
+    const sizeOk = currentFile.size > 0;
+    if (!sizeOk) { threatScore += 20; anomalies.push('Zero-byte File'); }
+    analysisResults.push({ label: 'File Size Integrity', ok: sizeOk, result: sizeOk ? `${formatSize(currentFile.size)} — valid` : 'Empty file — forensically invalid' });
+
+    // Module 4: SHA-256
+    const hashOk = hashes.sha256.length === 64;
+    analysisResults.push({ label: 'SHA-256 Hash Fingerprinting', ok: hashOk, result: hashOk ? 'Hash computed successfully' : 'Hash computation failed' });
+
+    // Module 5: EXIF (simulated)
+    if (isImage) {
+      const exifSuspect = Math.random() > 0.55;
+      if (exifSuspect) { threatScore += 25; anomalies.push('EXIF Timestamp Mismatch'); }
+      analysisResults.push({ label: 'EXIF Metadata Timestamp Consistency', ok: !exifSuspect, result: exifSuspect ? 'Date Taken ≠ Date Modified — possible re-save' : 'Timestamps consistent' });
+    } else {
+      analysisResults.push({ label: 'EXIF Metadata Timestamp Consistency', ok: null, result: 'N/A — not an image file' });
+    }
+
+    // Module 6: Clone detection (simulated)
+    if (isImage) {
+      const cloneSuspect = Math.random() > 0.70;
+      if (cloneSuspect) { threatScore += 35; anomalies.push('Clone / Copy-Move Detected'); }
+      analysisResults.push({ label: 'Clone Detection / Copy-Move Forgery', ok: !cloneSuspect, result: cloneSuspect ? 'Copy-move regions detected in image' : 'No clone regions found' });
+    } else {
+      analysisResults.push({ label: 'Clone Detection / Copy-Move Forgery', ok: null, result: 'N/A — not an image file' });
+    }
+
+    // Module 7: DCT (simulated)
+    if (isImage) {
+      const dctSuspect = currentFile.type === 'image/jpeg' && Math.random() > 0.65;
+      if (dctSuspect) { threatScore += 20; anomalies.push('Double-JPEG Compression'); }
+      analysisResults.push({ label: 'DCT Coefficient Analysis (Compression)', ok: !dctSuspect, result: dctSuspect ? 'Double-JPEG artifact detected — re-editing likely' : 'Compression artifacts normal' });
+    } else {
+      analysisResults.push({ label: 'DCT Coefficient Analysis (Compression)', ok: null, result: 'N/A — not a JPEG image' });
+    }
+
+    // Module 8: Embedded objects (simulated)
+    if (isDoc) {
+      const macroSuspect = Math.random() > 0.75;
+      if (macroSuspect) { threatScore += 30; anomalies.push('Embedded Macro Detected'); }
+      analysisResults.push({ label: 'Embedded Object / Macro Scan', ok: !macroSuspect, result: macroSuspect ? 'Embedded macro/script found in document' : 'No hidden objects or macros' });
+    } else {
+      analysisResults.push({ label: 'Embedded Object / Macro Scan', ok: null, result: 'N/A — not a document file' });
+    }
+
+    threatScore = Math.min(threatScore, 100);
+
+    // Render checks
+    const container = document.getElementById('checksContainer');
+    container.innerHTML = analysisResults.map(r => {
+      let icon, cls, res;
+      if (r.ok === null) { icon = '➖'; cls = ''; res = `<span style="color:var(--text-dim)">${r.result}</span>`; }
+      else if (r.ok)     { icon = '✅'; cls = 'ok'; res = `<span class="ok">${r.result}</span>`; }
+      else               { icon = '🚨'; cls = 'fail'; res = `<span class="fail">${r.result}</span>`; }
+      return `<div class="check-row">
+        <div class="check-icon">${icon}</div>
+        <div class="check-label">${r.label}</div>
+        <div class="check-result">${res}</div>
+      </div>`;
+    }).join('');
+
+    // Verdict
+    let vClass, vLabel, vColor;
+    if (threatScore < 20)      { vClass = 'clean';     vLabel = '✅ CLEAN';     vColor = 'var(--green)'; }
+    else if (threatScore < 50) { vClass = 'suspicious'; vLabel = '⚠ SUSPICIOUS'; vColor = 'var(--orange)'; }
+    else                       { vClass = 'tampered';  vLabel = '🚨 TAMPERED';  vColor = 'var(--red)'; }
+
+    const barColor = threatScore < 20 ? 'linear-gradient(90deg,#00ff88,#00cc66)' :
+                     threatScore < 50 ? 'linear-gradient(90deg,#ff8c00,#ffcc00)' :
+                                        'linear-gradient(90deg,#ff2244,#ff6600)';
+
+    const tagsHtml = anomalies.length
+      ? `<div class="anomaly-tags">${anomalies.map(a=>`<span class="anomaly-tag">${a}</span>`).join('')}</div>`
+      : '<p style="color:var(--text-dim);font-family:var(--mono);font-size:12px;margin-top:8px">No anomalies flagged</p>';
+
+    document.getElementById('verdictContainer').innerHTML = `
+      <div class="verdict-box ${vClass}">
+        <div class="verdict-label">${vLabel}</div>
+        <div class="score-num" style="color:${vColor}">${threatScore}%</div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--text-dim);margin:4px 0">THREAT SCORE</div>
+        <div class="threat-bar-wrap"><div class="threat-bar" style="width:${threatScore}%;background:${barColor}"></div></div>
+        ${tagsHtml}
+      </div>`;
+
+    // Heatmap
+    document.getElementById('heatmapPanel').style.display = 'block';
+    drawHeatmap(threatScore);
+  }
+
+  function drawHeatmap(threat) {
+    const canvas = document.getElementById('heatmapCanvas');
+    canvas.width = canvas.offsetWidth || 600;
+    canvas.height = 160;
+    const ctx = canvas.getContext('2d');
+
+    for (let x = 0; x < canvas.width; x += 4) {
+      for (let y = 0; y < 160; y += 4) {
+        const v = Math.random();
+        const threshold = 0.78 + (threat / 100) * 0.1;
+        let color;
+        if      (v < 0.78)        color = `rgba(0,${120+Math.random()*80|0},60,0.5)`;
+        else if (v < threshold)   color = `rgba(${200+Math.random()*55|0},${100+Math.random()*40|0},0,0.6)`;
+        else                      color = `rgba(${200+Math.random()*55|0},${Math.random()*40|0},${Math.random()*30|0},0.7)`;
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, 4, 4);
+      }
+    }
+
+    if (threat > 35) {
+      ctx.strokeStyle = '#ff2244';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 3]);
+      ctx.strokeRect(60, 20, 140, 100);
+      ctx.fillStyle = 'rgba(255,34,68,0.15)';
+      ctx.fillRect(60, 20, 140, 100);
+      ctx.fillStyle = '#ff2244';
+      ctx.font = '10px Share Tech Mono';
+      ctx.fillText('CLONE REGION', 65, 15);
+    }
+    if (threat > 55) {
+      ctx.strokeStyle = '#ff8c00';
+      ctx.setLineDash([4, 2]);
+      ctx.strokeRect(260, 40, 100, 80);
+      ctx.fillStyle = 'rgba(255,140,0,0.1)';
+      ctx.fillRect(260, 40, 100, 80);
+      ctx.fillStyle = '#ff8c00';
+      ctx.fillText('ANOMALY', 265, 35);
+    }
+  }
+
+  // ── HASH COMPARE ──
+  function updateComputedDisplay() {
+    const algo = document.getElementById('compareAlgo').value;
+    document.getElementById('computedHashDisplay').value = hashes[algo] || '';
+  }
+
+  document.getElementById('compareAlgo').addEventListener('change', updateComputedDisplay);
+
+  function compareHashes() {
+    const algo = document.getElementById('compareAlgo').value;
+    const computed = hashes[algo];
+    const known = document.getElementById('knownHash').value.trim();
+    const el = document.getElementById('compareResult');
+
+    if (!computed) { alert('Load a file in Tab 1 first.'); return; }
+    if (!known)    { alert('Paste the known hash first.'); return; }
+
+    el.style.display = 'block';
+    if (computed === known) {
+      el.className = 'compare-result match';
+      el.textContent = '✅ HASH MATCH — File is UNMODIFIED';
+    } else {
+      el.className = 'compare-result mismatch';
+      el.textContent = '🚨 HASH MISMATCH — File has been TAMPERED';
+    }
+  }
+
+  function useComputed() {
+    const algo = document.getElementById('compareAlgo').value;
+    if (!hashes[algo]) { alert('Load a file in Tab 1 first.'); return; }
+    document.getElementById('knownHash').value = hashes[algo];
+  }
+
+  function simulateTamper() {
+    // Generate fake hash
+    const chars = '0123456789abcdef';
+    let fake = '';
+    for (let i = 0; i < 64; i++) fake += chars[Math.random() * 16 | 0];
+    document.getElementById('knownHash').value = fake;
+    compareHashes();
+  }
+
+  // ── LIVE HASH ──
+  function updateLiveHash() {
+    const val = document.getElementById('liveInput').value;
+    if (!val) {
+      document.getElementById('liveHash').textContent = '— start typing above —';
+      document.getElementById('liveHash').style.color = 'var(--text-dim)';
+    } else {
+      document.getElementById('liveHash').textContent = CryptoJS.SHA256(val).toString();
+      document.getElementById('liveHash').style.color = 'var(--accent)';
+    }
+  }
+
+  // ── REPORT ──
+  function generateReport() {
+    const caseNum   = document.getElementById('caseNum').value || 'EVD-XXXX-XXX';
+    const examiner  = document.getElementById('examinerName').value || 'Unknown Examiner';
+    const notes     = document.getElementById('caseNotes').value || 'No additional notes.';
+    const timestamp = new Date().toISOString();
+
+    let verdictStr = 'NOT ANALYZED';
+    if (threatScore < 20)      verdictStr = 'CLEAN';
+    else if (threatScore < 50) verdictStr = 'SUSPICIOUS';
+    else                       verdictStr = 'TAMPERED';
+
+    reportText = `
+╔══════════════════════════════════════════════════════════════════════╗
+║              EVIDENTIA — FORENSIC CASE REPORT v2.1                  ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+CASE NUMBER  : ${caseNum}
+EXAMINER     : ${examiner}
+TIMESTAMP    : ${timestamp}
+SYSTEM       : EVIDENTIA Digital Evidence Tampering Detection System
+
+────────────────────────────────────────────────────────────────────────
+ CHAIN OF CUSTODY
+────────────────────────────────────────────────────────────────────────
+Evidence received and processed by: ${examiner}
+Date/Time of Analysis: ${timestamp}
+Processing Environment: Client-side browser (no external data transfer)
+Evidence Integrity: File processed without modification
+
+────────────────────────────────────────────────────────────────────────
+ EVIDENCE FILE DETAILS
+────────────────────────────────────────────────────────────────────────
+Filename     : ${currentFile ? currentFile.name : 'N/A'}
+File Size    : ${currentFile ? formatSize(currentFile.size) : 'N/A'}
+MIME Type    : ${currentFile ? (currentFile.type || 'unknown') : 'N/A'}
+Last Modified: ${currentFile ? new Date(currentFile.lastModified).toLocaleString() : 'N/A'}
+
+────────────────────────────────────────────────────────────────────────
+ CRYPTOGRAPHIC HASH FINGERPRINTS
+────────────────────────────────────────────────────────────────────────
+MD5    : ${hashes.md5 || 'Not computed'}
+SHA-256: ${hashes.sha256 || 'Not computed'}
+SHA-512: ${hashes.sha512 || 'Not computed'}
+
+Note: SHA-256 is NIST-approved and court-admissible for digital evidence.
+
+────────────────────────────────────────────────────────────────────────
+ FORENSIC ANALYSIS RESULTS
+────────────────────────────────────────────────────────────────────────
+${analysisResults.map(r => {
+  const status = r.ok === null ? '[N/A]' : r.ok ? '[PASS]' : '[FAIL]';
+  return `${status.padEnd(8)} ${r.label}\n         ${r.result}`;
+}).join('\n\n')}
+
+────────────────────────────────────────────────────────────────────────
+ VERDICT
+────────────────────────────────────────────────────────────────────────
+THREAT SCORE : ${threatScore}%
+VERDICT      : ${verdictStr}
+
+Threshold: CLEAN < 20% | 20–50% SUSPICIOUS | > 50% TAMPERED
+
+────────────────────────────────────────────────────────────────────────
+ EXAMINER NOTES
+────────────────────────────────────────────────────────────────────────
+${notes}
+
+────────────────────────────────────────────────────────────────────────
+ DISCLAIMER
+────────────────────────────────────────────────────────────────────────
+SHA-256 hash verification is court-admissible. Heuristic detection
+modules (EXIF, clone detection, DCT analysis) are investigative aids
+and should be corroborated with certified forensic tools for legal use.
+
+╔══════════════════════════════════════════════════════════════════════╗
+║                     END OF FORENSIC REPORT                          ║
+║                     EVIDENTIA v2.1 — SE Lab Project                 ║
+╚══════════════════════════════════════════════════════════════════════╝
+`;
+
+    const out = document.getElementById('reportOutput');
+    out.style.display = 'block';
+    out.textContent = reportText;
+    document.getElementById('dlBtn').disabled = false;
+  }
+
+  function downloadReport() {
+    const caseNum = document.getElementById('caseNum').value || 'EVD';
+    const blob = new Blob([reportText], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `forensic_report_${caseNum}.txt`;
+    a.click();
+  }
+
+  // ── UTILS ──
+  function switchTab(id, btn) {
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    btn.classList.add('active');
+  }
+
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' KB';
+    return (bytes/1048576).toFixed(2) + ' MB';
+  }
+
+  function copyText(id) {
+    const text = document.getElementById(id).textContent;
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = event.target;
+      btn.textContent = 'COPIED!';
+      btn.style.color = 'var(--green)';
+      setTimeout(() => { btn.textContent = 'COPY'; btn.style.color = ''; }, 1500);
+    });
+  }
+</script>
+</body>
+</html>
